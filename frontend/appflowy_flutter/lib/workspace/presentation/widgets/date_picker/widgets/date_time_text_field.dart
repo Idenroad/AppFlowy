@@ -132,7 +132,7 @@ class _DateTimeTextFieldState extends State<DateTimeTextField> {
 
   void dateFocusNodeListener() {
     if (dateFocusNode.hasFocus || justSubmitted) {
-      justSubmitted = true;
+      justSubmitted = false;
       return;
     }
 
@@ -146,7 +146,7 @@ class _DateTimeTextFieldState extends State<DateTimeTextField> {
 
   void timeFocusNodeListener() {
     if (timeFocusNode.hasFocus || widget.timeFormat == null || justSubmitted) {
-      justSubmitted = true;
+      justSubmitted = false;
       return;
     }
 
@@ -186,7 +186,6 @@ class _DateTimeTextFieldState extends State<DateTimeTextField> {
       final timeComponent = Duration(
         hours: widget.dateTime!.hour,
         minutes: widget.dateTime!.minute,
-        seconds: widget.dateTime!.second,
       );
       dateTime = DateTime(
         dateTime.year,
@@ -198,22 +197,64 @@ class _DateTimeTextFieldState extends State<DateTimeTextField> {
   }
 
   void onTimeTextFieldSubmitted() {
-    // this happens in the middle of a date range selection
     if (widget.dateTime == null) {
       widget.refreshTextController?.refresh();
       statesController.update(WidgetState.error, true);
       return;
     }
-    final adjustedTimeStr =
-        "${dateTextController.text} ${timeTextController.text.trim()}";
-    final dateTime = parseDateTimeStr(adjustedTimeStr);
 
-    if (dateTime == null) {
+    final timeStr = timeTextController.text.trim();
+    final timeFormat = widget.timeFormat!;
+    
+    try {
+      DateTime? parsedTime;
+      if (timeFormat == TimeFormatPB.TwelveHour) {
+        final RegExp timeRegex = RegExp(r'^(1[0-2]|0?[1-9]):([0-5][0-9])\s*([AaPp][Mm])$');
+        final match = timeRegex.firstMatch(timeStr);
+        
+        if (match != null) {
+          int hours = int.parse(match.group(1)!);
+          final minutes = int.parse(match.group(2)!);
+          final isPM = match.group(3)!.toUpperCase().startsWith('P');
+          
+          if (isPM && hours != 12) hours += 12;
+          if (!isPM && hours == 12) hours = 0;
+          
+          parsedTime = DateTime(
+            widget.dateTime!.year,
+            widget.dateTime!.month,
+            widget.dateTime!.day,
+            hours,
+            minutes,
+          );
+        }
+      } else {
+        final RegExp timeRegex = RegExp(r'^([0-1][0-9]|2[0-3]):([0-5][0-9])$');
+        final match = timeRegex.firstMatch(timeStr);
+        
+        if (match != null) {
+          final hours = int.parse(match.group(1)!);
+          final minutes = int.parse(match.group(2)!);
+          
+          parsedTime = DateTime(
+            widget.dateTime!.year,
+            widget.dateTime!.month,
+            widget.dateTime!.day,
+            hours,
+            minutes,
+          );
+        }
+      }
+
+      if (parsedTime != null) {
+        statesController.update(WidgetState.error, false);
+        widget.onSubmitted?.call(parsedTime);
+      } else {
+        statesController.update(WidgetState.error, true);
+      }
+    } catch (e) {
       statesController.update(WidgetState.error, true);
-      return;
     }
-    statesController.update(WidgetState.error, false);
-    widget.onSubmitted?.call(dateTime);
   }
 
   DateTime? parseDateTimeStr(String string) {
@@ -302,11 +343,13 @@ class _DateTimeTextFieldState extends State<DateTimeTextField> {
                         controller: timeTextController,
                         style: Theme.of(context).textTheme.bodyMedium,
                         maxLength: widget.timeFormat == TimeFormatPB.TwelveHour
-                            ? 8 // 12:34 PM = 8 characters
-                            : 5, // 12:34 = 5 characters
+                            ? 8
+                            : 5,
                         inputFormatters: [
                           FilteringTextInputFormatter.allow(
-                            RegExp('[0-9:AaPpMm]'),
+                            widget.timeFormat == TimeFormatPB.TwelveHour
+                                ? RegExp(r'[0-9:AaPpMm\s]')
+                                : RegExp(r'[0-9:]'),
                           ),
                         ],
                         decoration: getInputDecoration(
